@@ -62,19 +62,6 @@ const HashDress = (function() {
 
 		},
 
-		_init: function() {
-
-			this._onHash( window.location.hash );
-
-			window.addEventListener( 'hashchange', function () {
-
-				scope._onHash( window.location.hash );
-
-			} );
-
-		},
-
-
 		/* Hash related private methods */
 
 		_onHash: function( hash ) {
@@ -429,9 +416,25 @@ const HashDress = (function() {
 			}
 
 		},
+		
+		/* Public Core Method */
+		init: function() {
+
+			this._onHash( window.location.hash );
+
+			window.addEventListener( 'hashchange', function () {
+
+				scope._onHash( window.location.hash );
+
+			} );
+
+		},
+
 
 	} );
 
 	return HashDress;
 
 }();
+
+		   
