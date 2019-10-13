@@ -6,13 +6,14 @@ const HashDress = (function() {
 
 		scope = this;
 
-		this._currentHash = null;
-		this._currentDirectory = null;
-		this._currentQueries = null;
+		this._currentHash = null;		 //string
+		this._currentDirectory = null; //string
+		this._currentQueries = null;   //string
 
 		this._queryMethods = {};
 
 		this._directories = {};
+		this._wildcards = {};
 
 		this._enableClosestMatch = true;
 
@@ -61,6 +62,7 @@ const HashDress = (function() {
 			return false;
 
 		},
+
 
 		/* Hash related private methods */
 
@@ -149,7 +151,23 @@ const HashDress = (function() {
 
 		_runDir: function( path, _notFound = true ) {
 
-			/* path is assumed to be 'fixed' */
+			for( let wildcard in this._wildcards ) {
+
+				let subPath;
+
+				if( wildcard.length < path.length ) {
+
+					subPath = path.substring( 0, wildcard.length - 1 ) + '*';
+
+					if( wildcard === subPath ) {
+
+						this._wildcards[ wildcard ]( path );
+
+					}
+
+				}
+
+			}
 
 			if( this._directories[ path ] !== undefined ) {
 
@@ -286,7 +304,17 @@ const HashDress = (function() {
 
 			path = this._fixDir( path );
 
-			this._directories[ path ] = callback;
+			//console.log(path)
+
+			if( path[ path.length - 1 ] === '*' ) {
+
+				this._wildcards[ path ] = callback
+
+			} else {
+
+				this._directories[ path ] = callback;
+
+			}
 
 		},
 
@@ -417,7 +445,6 @@ const HashDress = (function() {
 
 		},
 		
-		/* Public Core Method */
 		init: function() {
 
 			this._onHash( window.location.hash );
@@ -428,13 +455,10 @@ const HashDress = (function() {
 
 			} );
 
-		},
-
+		}
 
 	} );
 
 	return HashDress;
 
-}();
-
-		   
+} )();
