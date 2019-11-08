@@ -1,140 +1,293 @@
-const HashDress = (function() {
+const HashDress = ( function() {
 
-	let scope;
+	function Path( path, callback, context = HashDress ) {
 
-	function HashDress () {
+		this.context = context;
+		this.context.paths.add( this );
 
-		scope = this;
+		// Fix the path.
+		this.path = this.context.fixPath( path );
 
-		this._currentHash = null;		 //string
-		this._currentDirectory = null; //string
-		this._currentQueries = null;   //string
+		this.wild = false;
 
-		this._queryMethods = {};
+		if( this.path[ this.path.length - 1 ] === '*' ) {
 
-		this._directories = {};
-		this._wildcards = {};
+			this.path = this.path.substring( 0, this.path.length - 1 );
+			this.wild = true;
 
-		this._enableClosestMatch = true;
+		}
 
+		this.callback = callback.bind( this );
+
+		var parsed = this.context.parsePath( this.path );
+
+		this.list = parsed.list;
+		this.parameters = parsed.parameters;
 
 	};
 
-	HashDress.prototype = Object.assign( HashDress.prototype, {
+	Path.prototype = {
 
-		/*
-		**	PRIVATE
-		*/
+		dispose: function() {
 
-		_stringEquality: function( itemA, itemB ) {
+			this.context.paths.delete( this );
 
-			const stringA = typeof itemA !== 'string' ? JSON.stringify( itemA ) : itemA,
-				  stringB = typeof itemB !== 'string' ? JSON.stringify( itemB ) : itemB;
+			this.list = undefined;
+			this.parameters = undefined;
+			this.callback = undefined;
+			this.path = undefined;
+			this.context = undefined;
 
-			if( stringA === stringB ) return true;
-
-			return false;
-
-		},
-
-		_shallowEquality: function( itemA, itemB ) {
-
-			const keysA = itemA.keys(),
-				  keysB = itemB.keys();
-
-			if( keysA.length === keysB.length ) {
-
-
-				for( var i = 0; i < keysA.length; i ++ ) {
-
-					if( itemA[ keysA[ i ] ] !== itemB[ keysA[ i ] ] )  {
-
-						return false;
-
-					}
-
-				}
-
-				return true;
-
-			}
-
-			return false;
+			return undefined;
 
 		},
 
+		trigger: function( parameters ) {
 
-		/* Hash related private methods */
-
-		_onHash: function( hash ) {
-
-			// Check that the hashes are equal
-
-			if( this._currentHash !== hash ) {
-
-				const parsed = hash.split( '?' );
-
-				//parsed[ 0 ] = directory path
-				//parsed[ 1 ] = query string(s)
-
-				parsed[ 0 ] = this._onDir( parsed[ 0 ] );
-
-				this._currentHash = parsed[ 0 ];
-
-				if( parsed.split > 1 ) {
-
-					const query = hash.substr( parsed[ 0 ].length );
-
-					parsed[ 1 ] = this._onQuery( query );
-
-					/* question mark will be added by the _onQuery */
-
-					if( parsed[ 1 ].length > 0 )
-
-					this._currentHash += '?' + parsed[ 1 ];
-
-				}
-
-				history.replaceState( null, null, this._currentHash );
-
-			}
+			this.callback( undefined, parameters );
 
 		},
 
+		changePath: function( path ) {
 
-		/* Directory related private methods */
+			this.path = this.context.fixPath( path );
 
-		_smallestParentDirectory: function( path ) {
+		}
 
-			let parentPath = undefined;
+	};
 
-			for ( let dirPath in this._directories ) {
+	function Query( name, method, context = HashDress, checkHash = true ) {
 
-				if ( path.length >= dirPath.length && path.indexOf( dirPath ) !== -1 && ( parentPath === undefined || parentPath.length < dirPath.length  ) ) {
+		this.context = context;
+		this.context.queries.set( name, this );
 
-					parentPath = dirPath;
+		this.name = name;
+		this.method = method.bind( this );
 
-				}
+		this.value = undefined;
 
-			}
+		this.enabled = true;
 
-			return parentPath;
+	};
+
+	Query.prototype = {
+
+		enable: function() {
+
+			this.enabled = true;
+
+			return this;
 
 		},
 
-		_fixDir: function( path ) {
+		disable: function() {
 
-			if( path.length > 1 ) {
+			this.enabled = false;
 
-				if( path[ 1 ] !== '/' ) {
+			return this;
 
-					path = '#/' + path.substr( 1 );
+		},
+
+		trigger: function( value ) {
+
+			this.method( value );
+
+			return this;
+
+		},
+
+		dispose: function() {
+
+			this.context.query.delete( this.name );
+
+			this.name = undefined;
+			this.method = undefined;
+			this.value = undefined;
+			this.enabled = undefined;
+			this.context = undefined;
+
+			return undefined;
+
+		}
+
+	};
+
+	function Router( options = {} ) {
+
+		// Options
+		this.autoInit = options.autoInit !== undefined ? options.autoInit : false;
+
+		// Hash/Router
+		this.routerEnabled = options.routerEnabled || true;
+		//this.listenToHashChanges = true;
+		this.currentHash = undefined;
+
+		// Paths
+		this.pathsEnabled = true;
+		this.paths = new Set();
+		this.deltaTriggerPath = true;
+		this.currentPath = {
+
+			path: undefined,
+			list: [],
+			parameters: {}
+
+		};
+
+		// Query
+		this.queriesEnabled = true;
+		this.queries = new Map();
+		this.deltaTriggerQueries = true;
+		this.currentQueries = {
+
+			queries: undefined,
+			list: new Map()
+
+		};
+
+		// Fragment
+		this.fragmentEnabled = true;
+		this.currentFragment = undefined;
+
+		// Constructors
+		this.Path = Path;
+		this.Query = Query;
+		this.Router = Router;
+
+		if( this.autoInit ) {
+
+			this.init();
+
+		}
+
+	};
+
+	Router.prototype = {
+
+		_hashChange: function( hash, _historyMethod ) {
+
+			if( this.currentHash !== hash && this.routerEnabled ) {
+
+				var list,
+					path, query, fragment;
+
+				list = hash.split( '?' );
+
+				if( list.length > 1 ) {
+
+					list.push( ...list.pop().split( '#' ) );
+					path = list[ 0 ];
+					query = list[ 1 ];
+					fragment = list.length > 2 ? list[ 2 ] : undefined;
 
 				}
 
 				else {
 
-					path = '#/' + path.substr( 2 );
+					list = list[ 0 ].substring( 1 ).split( '#' );
+					path = '#' + list[ 0 ];
+					query = undefined;
+					fragment = list.length > 1 ? list[ 1 ] : undefined;
+
+				}
+
+				path = this._pathChange( path );
+				query = this._queryChange( query );
+				fragment = this._fragmentChange( fragment  ); 
+
+				this.currentHash = path + query + fragment;
+
+				if( _historyMethod === 'replace' ) {
+
+					history.replaceState( null, null, this.currentHash );
+
+				}
+
+				else if( _historyMethod === 'push' ) {
+
+					history.pushState( null, null, this.currentHash )
+
+				}
+
+			}
+
+		},
+
+		_pathChange: function( path ) {
+
+			path = this.fixPath( path );
+
+			if( ( this.currentPath.path !== path ||
+				!this.deltaTriggerPath ) && this.pathsEnabled ) {
+
+				this.triggerPath( path );
+
+				this.currentPath.path = path;
+
+			}
+
+			return path;
+
+		},
+
+		_queryChange: function( queries ) {
+
+			queries = queries !== undefined ? this.fixQueries( queries ) : '';
+
+			if( ( !this.deltaTriggerQueries ||
+				this.currentQueries !== queries ) &&
+				this.queriesEnabled ) {
+
+
+				this.triggerQueries( queries );
+
+				this.currentQueries.queries = queries;
+
+			}
+
+			return queries;
+
+		},
+
+		_fragmentChange: function( fragment ) {
+
+			if( this.fragmentEnabled && fragment !== undefined ) {
+
+				this.triggerFragment( fragment );
+				this.currentFragment = fragment;
+
+			}
+
+			return fragment !== undefined ? '#' + fragment : '';
+
+		},
+
+		setHash: function() {},
+
+		setPath: function() {},
+
+		setQuery: function() {},	
+
+		fixPath: function( path ) {
+
+			if( path.length > 1 ) {
+
+				if( path[ 1 ] !== '/' ) {
+
+					path = '#/' + path.substring( 1 );
+
+				}
+
+				else {
+
+					path = '#/' + path.substring( 2 );
+
+				}
+
+				if( path.length > 2 && path[ path.length - 1 ] === '/' ) {
+
+					path = path.substring( 0, path.length - 1 );
+
 				}
 
 			}
@@ -149,19 +302,138 @@ const HashDress = (function() {
 
 		},
 
-		_runDir: function( path, _notFound = true ) {
+		parsePath: function( path ) {
 
-			for( let wildcard in this._wildcards ) {
+			// Path is assumed to be fixed.
 
-				let subPath;
+			var list = path.split( '/' ),
+				parameters = {};
 
-				if( wildcard.length < path.length ) {
+			for( var i = 1; i < list.length; i ++ ) {
 
-					subPath = path.substring( 0, wildcard.length - 1 ) + '*';
+				if( list[ i ].indexOf( ':' ) !== -1 ) {
 
-					if( wildcard === subPath ) {
+					parameters[ list[ i ].substring( 1 ) ] = {
 
-						this._wildcards[ wildcard ]( path );
+						index: i
+
+					};
+
+				}
+
+				else if( list[ i ] === '' ) {
+
+					list.splice( i, 1 );
+
+				}
+
+			}
+
+			return {
+
+				path: path,
+				list: list,
+				parameters: parameters
+				
+			};
+
+		},
+
+		triggerPath: function( path ) {
+
+			// Path is assumed to be fixed.
+
+			// Parametric paths.
+			var list = path.split( '/' );
+
+			this.paths.forEach( function( entry ) {
+
+				if( list.length === entry.list.length ||
+					( entry.wild && entry.list.length <= list.length ) ) {
+
+					for( var j = 0; j < entry.list.length; j ++ ) {
+
+						if( entry.list[ j ][ 0 ] !== ':' &&
+							list[ j ] !== entry.list[ j ] &&
+							!( j === entry.list.length - 1 && entry.wild && entry.list[ j ] === list[ j ].substring( 0, entry.list ) ) ) {
+
+							break;
+
+						}
+
+					}
+
+					if( j === entry.list.length ) {
+
+						var parameters = {};
+
+						for( var param in entry.parameters ) {
+
+							parameters[ param ] = 
+								list[ entry.parameters[ param ].index ];
+
+						}
+
+						entry.callback( path, parameters );
+
+					}
+
+				}
+
+			} );
+
+		},
+
+		fixQueries: function( query ) {
+
+			if( query[ 0 ] !== '?' ) {
+
+				query = '?' + query;
+
+			}
+
+			return query;
+
+		},
+
+		parseQueries: function( query ) {
+
+			var list = query.split( '&' );
+
+			list[ 0 ] = list[ 0 ].substring( 1 );
+
+			for( var i = 0; i < list.length; i ++ ) {
+
+				list[ i ] = list[ i ].split( '=' );
+
+			}
+
+			return list;
+
+		},
+
+		triggerQueries: function( queries ) {
+
+			// remove queries
+
+			queries = this.parseQueries( queries );
+
+			var query;
+
+			for( var i = 0; i < queries.length; i ++ ) {
+
+				query = this.queries.get( queries[ i ][ 0 ] );
+
+				if( query !== undefined && query.enabled ) {
+
+					if( !this.deltaTriggerQueries ||
+						query.value !== queries[ i ][ 1 ] ||
+						!this.currentQueries.list.has( query.name ) ) {
+
+						this.currentQueries.list.set( query.name, query );
+
+						query.value = queries[ i ][ 1 ];
+						query.method( query.value );
 
 					}
 
@@ -169,296 +441,58 @@ const HashDress = (function() {
 
 			}
 
-			if( this._directories[ path ] !== undefined ) {
+		},
 
-				this._directories[ path ]( path );
+		triggerFragment: function( fragment ) {
 
-			}
+			if( document.readyState === 'complete' ||
+				document.readyState === 'interactive' ) {
 
-			else if( this._enableClosestMatch ) {
+			    var element = document.getElementById( fragment );
 
-				let parentPath;
+				if( element !== null ) {
 
-				parentPath = this._smallestParentDirectory( path );
-
-				if ( parentPath !== undefined ) {
-
-					this._directories[ parentPath ]( path );
-
-				}
-
-				else if( this._directories[ 'not-found' ] !== undefined && _notFound ) {
-
-					this._directories[ path ]( path );
+					element.scrollIntoView();
 
 				}
 
 			}
 
-			else if( this._directories[ 'not-found' ] !== undefined && _notFound ) {
+			else {
 
-				this._directories[ path ]( path );
+			    window.addEventListener( 'DOMContentLoaded', function() {
 
-			}
+			        var element = document.getElementById( fragment );
 
-		},
+					if( element !== null ) {
 
-		_onDir: function( path ) {
+						element.scrollIntoView();
+					}
 
-			if( this._currentDirectory !== path ) {
-
-				path = this._fixDir( path );
-
-				if ( this._currentDirectory !== path ) {
-
-					this._currentDir = path;
-
-					this._runDir( path );
-
-				}
-
-				return path;
+			    } );
 
 			}
 
 		},
 
-
-		/* Query related private methods */
-
-		_fixQuery: function( query ) {
-
-			/* should probably return a set of queries */
-
-			/* check wheter the question mark is inside quates don't remove those */
-			/* replace all other question marks with 'and': & */
-
-			const queries = query.split( '?' );
-
-			query = queries[ 0 ];
-
-			for( var i = 1; i < queries.length; i ++ ) {
-
-				query += '&' + queries[ i ];
-
-
-			}
-
-			return query;
-
-		},
-
-		_runQuery: function( query ) {
-
-			const queries = query.split( '&' );
-
-			for( var i = 0; i < queries.length; i ++ ) {
-
-				let queryItem, queryName, queryParam;
-
-				queryItem = queries[ i ].split( '=' );
-
-				queryName = queryItem[ 0 ];
-				queryParam = JSON.parse( queryItem[ 1 ] );
-
-				if( this._queryMethods[ queryName ] !== undefined && 
-					!this._queryMethods[ queryName ].equal( this._queryMethods[ queryName ].param, param ) ) {
-
-					this._queryMethods[ queryName ].param = queryParam;
-
-					this._queryMethods[ queryName ].method( queryParam );
-
-				}
-
-			}
-
-		},
-
-		_onQuery: function( query ) {
-
-			if( this._currentQueries !== query ) {
-
-				query = this._fixQuery( query );
-
-				if ( this._currentQueries !== query ) {
-
-					this._currentQueries = query;
-					this._runQuery( query );
-
-				}
-
-			}
-
-			return query;
-
-		},
-
-
-		/*
-		** PUBLIC METHODS
-		*/
-
-		/* Directory related public methods */
-
-		createDir: function( path, callback ) {
-
-			path = this._fixDir( path );
-
-			//console.log(path)
-
-			if( path[ path.length - 1 ] === '*' ) {
-
-				this._wildcards[ path ] = callback
-
-			} else {
-
-				this._directories[ path ] = callback;
-
-			}
-
-		},
-
-		setDir: function( path, _history = 'replace' ) {
-
-			path = this._fixDir( path );
-
-			this._currentHash = path + this._currentQueries;
-
-			this._runDir( path );
-
-			if( _history === 'replace' ) {
-
-				history.replaceState( null, null, this._currentHash );
-
-			}
-
-			else if( _history === 'push' ) {
-
-				history.pushState( null, null, this._currentHash )
-
-			}
-
-		},
-		
-		disposeDir: function( path ) {
-
-			path = this._fixDir( path );
-
-			this._directories[ path ] = undefined;
-
-		},
-
-		/* Query related public methods */
-
-		createQuery: function( name, method, _equality = this._stringEquality ) {
-
-			this._queryMethods[ name ] = {
-
-				name: name,
-				method: method,
-				equality: _equality,
-				param: undefined
-
-			};
-
-		},
-
-		setQuery: function( name, param, _history = 'replace' ) {
-
-			if( this._currentQueryMethods[ name ] === undefined ) {
-
-				this._currentQueryMethods[ name ] = this._queryMethods[ name ];
-
-				if( this._currentQueries.length === 0 ) {
-
-					this._currentQueries += '?';
-
-				}
-
-			}
-
-			this._currentQueries += name + '=' + JSON.stringify( param );
-
-			this._currentHash = this._currentDirectory + this._currentQueries;
-
-			this._currentQueryMethods[ name ].method( param );
-
-			if( _history === 'replace' ) {
-
-				history.replaceState( null, null, this._currentHash );
-
-			}
-
-			else if( _history === 'push' ) {
-
-				history.pushState( null, null, this._currentHash )
-
-			}
-
-		},
-
-		removeQuery: function( name, _history = 'replace' ) {
-
-			if( this._currentQueryMethods[ name ] !== undefined ) {
-
-				this._currentQueryMethods[ name ] = undefined;
-
-				const queryString = name + '=' + JSON.stringify( this._queryMethods.param ),
-					  index = this._currentQueries.indexOf( queryString );
-
-				this._currentQueries = this._currentQueries.substring( 0, index )
-									 + this._currentQueries.substring( queryString.length + ( queryString.length + 1 < this._currentQueries.length ? 1 : 0 ), this._currentQueries.length );
-
-				if( this._currentQueries.length === 1 ) {
-
-					this._currentQueries = '';
-
-				}
-
-				this._currentHash = this._currentDirectory + this._currentQueries;
-
-				if( _history === 'replace' ) {
-
-					history.replaceState( null, null, this._currentHash );
-
-				}
-
-				else if( _history === 'push' ) {
-
-					history.pushState( null, null, this._currentHash )
-
-				}
-
-			}
-		
-		},
-
-		disposeQuery: function( name, _history = 'replace' ) {
-
-			if( this._queryMethods[ name ] !== undefined ) {
-
-				this.removeQuery( name, _history );
-
-				this._queryMethods[ name ] = undefined;
-
-			}
-
-		},
-		
 		init: function() {
 
-			this._onHash( window.location.hash );
+			this._hashChange( window.location.hash, 'replace' );
 
-			window.addEventListener( 'hashchange', function () {
+			var hashChange = function() {
 
-				scope._onHash( window.location.hash );
+				this._hashChange( window.location.hash, 'replace' );
 
-			} );
+			};
+			
+			hashChange = hashChange.bind( this );
+
+			window.addEventListener( 'hashchange', hashChange );
 
 		}
 
-	} );
+	};
 
-	return HashDress;
+	return new Router();
 
 } )();
