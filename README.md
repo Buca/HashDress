@@ -38,7 +38,7 @@ var wildRoot = HashDress.Path( '#/*', function( suppliedPath ) {
 Here's a setup where if the user supplies the address `http://example.com/#/my-category/some-title/` it will show `{ category: 'my-category', title: 'some-title' }, /my-category/some-title/'` in the console.
 ```javascript
 
-var HashDress.Path( '#/:category/:title', function( path, params ) {
+var paramRoot = HashDress.Path( '#/:category/:title', function( path, params ) {
 
   console.log( params, path );
 
