@@ -1,18 +1,56 @@
-function Query( name, method, context = HashDress, checkHash = true ) {
+function Query( router, name, onTrigger, checkCurrent = true ) {
 
-	this.context = context;
-	this.context.queries.set( name, this );
+	EventMock.call( this );
+
+	if( router !== undefined ) router.attach( this );
 
 	this.name = name;
-	this.method = method.bind( this );
-
 	this.value = undefined;
 
 	this.enabled = true;
+	this.entered = false;
+	this.triggerContext = this;
+	this.onTrigger = onTrigger;
+
+	this.disposed = false;
+
+	if( this.enabled && checkCurrent ) {
+
+		var query = Utils.parseQuery( Utils.extractQuery( window.location.hash, this.name ) ),
+			valid = this.validate( query );
+
+		if( valid !== false ) {
+
+			this.trigger( valid );
+
+		}
+
+	}
 
 };
 
-Query.prototype = {
+Query.prototype = Object.assign( Object.create( EventMock.prototype ), {
+
+	constructor: Query,
+
+	trigger: function( query, context = this.triggerContext ) {
+
+		query = Utils.parseQuery( query );
+
+		this.value = query.value;
+
+		this.onTrigger.bind( context )( query );
+		this.dispatch( 'trigger', query );
+
+		return this;
+
+	},
+
+	validate: function( query ) {
+
+		return Utils.validateQuery( this, query );
+
+	},
 
 	enable: function() {
 
@@ -30,26 +68,20 @@ Query.prototype = {
 
 	},
 
-	trigger: function( value ) {
+	dispose: function( router ) {
+		
+		this.clearEventListeners();
 
-		this.method( value );
+		for( var props in this ) {
 
-	},
+			this[ props ] = undefined;
 
-	dispose: function() {
+		}
 
-		this.context.query.delete( this.name );
-
-		this.name = undefined;
-		this.method = undefined;
-		this.value = undefined;
-		this.enabled = undefined;
-		this.context = undefined;
+		this.disposed = true;
 
 		return undefined;
 
 	}
 
-};
-
-module.exports = Query;
+} );
