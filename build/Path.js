@@ -1,57 +1,108 @@
-function Path( path, callback, context = HashDress ) {
+//const EventMock = require( 'EventMock.js' ),
+//	  Utils = require( 'Utils.js' );
 
-	this.context = context;
-	this.context.paths.add( this );
+function Path( router, path, onTrigger = undefined, checkCurrent = true ) {
 
-	// Fix the path.
-	this.path = this.context.fixPath( path );
+	EventMock.call( this );
 
-	this.wild = false;
+	if( router !== undefined ) router.attach( this );
 
-	if( this.path[ this.path.length - 1 ] === '*' ) {
+	path = Utils.parsePath( path );
 
-		this.path = this.path.substring( 0, this.path.length - 1 );
-		this.wild = true;
+	this.string = null;
+	this.list = [];
+	this.parameters = {};
+	this.enabled = true;
+	this.entered = false;
+	this.triggerContext = this;
+	this.onTrigger = onTrigger;
+	this.disposed = false;
+
+	Object.assign( this, path );
+
+	if( this.enabled && checkCurrent ) {
+
+		var path = Utils.parsePath( Utils.extractPath( window.location.hash ) ),			
+			valid = this.validate( path );
+
+		if( valid !== false ) {
+
+			this.onTrigger.bind( this.triggerContext )( path );
+			this.dispatch( 'trigger', path );
+
+		}
 
 	}
 
-	this.callback = callback.bind( this );
+	this.on( 'enter', function() {
 
-	var parsed = this.context.parsePath( this.path );
+		this.entered = true;
 
-	this.list = parsed.list;
-	this.parameters = parsed.parameters;
+	} );
+
+	this.on( 'leave', function() {
+
+		this.entered = false;
+
+	} )
 
 };
 
-Path.prototype = {
+
+Path.prototype = Object.assign( Object.create( EventMock.prototype ), {
+
+	constructor: Path,
+
+	trigger: function( path, context = this.triggerContext ) {
+
+		path = Utils.parsePath( path );
+
+		this.onTrigger.bind( context )( path );
+		this.dispatch( 'trigger', path );
+
+		return this;
+
+	},
+
+	validate: function( path ) {
+
+		return Utils.validatePaths( this, path );
+
+	},
+
+	enable: function() {
+
+		this.enabled = true;
+
+		return this;
+
+	},
+
+	disable: function() {
+
+		this.enabled = false;
+
+		return this;
+
+	},
 
 	dispose: function() {
 
-		this.context.paths.delete( this );
+		this.clearEventListeners();
 
-		this.list = undefined;
-		this.parameters = undefined;
-		this.callback = undefined;
-		this.path = undefined;
-		this.context = undefined;
+		for( var props in this ) {
+
+			this[ props ] = undefined;
+
+		}
+
+		this.disposed = true;
 
 		return undefined;
 
 	},
 
-	trigger: function( parameters ) {
+} );
 
-		this.callback( undefined, parameters );
 
-	},
-
-	changePath: function( path ) {
-
-		this.path = this.context.fixPath( path );
-
-	}
-
-};
-
-module.exports = Path;
+//module.exports = Path;
