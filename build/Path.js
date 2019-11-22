@@ -1,6 +1,3 @@
-//const EventMock = require( 'EventMock.js' ),
-//	  Utils = require( 'Utils.js' );
-
 function Path( router, path, onTrigger = undefined, checkCurrent = true ) {
 
 	EventMock.call( this );
@@ -103,6 +100,3 @@ Path.prototype = Object.assign( Object.create( EventMock.prototype ), {
 	},
 
 } );
-
-
-//module.exports = Path;
